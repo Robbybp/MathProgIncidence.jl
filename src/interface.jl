@@ -724,3 +724,114 @@ end
 block_triangularize(model::JuMP.Model) = block_triangularize(IncidenceGraphInterface(model))
 block_triangularize(matrix::SparseMatrixCSC) = block_triangularize(IncidenceGraphInterface(matrix))
 block_triangularize(matrix::Matrix) = block_triangularize(IncidenceGraphInterface(matrix))
+
+const SubtreeNodeType = Union{
+    JuMP.VariableRef,
+    JuMP.ConstraintRef,
+    Int,
+    # This is starting to get a little excessive.
+    # Should I just use Vector{Any}?
+    JuMP.AffExpr,
+    JuMP.QuadExpr,
+    JuMP.NonlinearExpr,
+}
+
+struct IncidenceSubtree{T}
+    _nodes::Vector{SubtreeNodeType}
+    _dag::Graphs.DiGraph{T}
+end
+
+function _collect_lines!(lines::Vector, tree::IncidenceSubtree; node = 1, indent = "")
+    indent = (indent == "" ? "├ " : join(["│ ", indent]))
+    orig_indent = indent
+    neighbors = Graphs.neighbors(tree._dag, node)
+    for i in neighbors
+        child = tree._nodes[i]
+        if i == last(neighbors)
+            indent = replace(indent, "├" => "└")
+        end
+        push!(lines, "$indent$child")
+        # This could be handled better...
+        indent = orig_indent
+        _collect_lines!(lines, tree; node = i, indent)
+    end
+    return
+end
+
+function Base.show(io::IO, tree::IncidenceSubtree)
+    root = tree._nodes[1]
+    lines = ["$root"]
+    _collect_lines!(lines, tree)
+    for line in lines
+        println(io, line)
+    end
+    return
+end
+
+function limited_bfs(
+    igraph::IncidenceGraphInterface,
+    root::Union{JuMP.VariableRef,<:JuMP.ConstraintRef,Int};
+    depth::Int = 1,
+)
+    root = if root in keys(igraph._var_node_map)
+        igraph._var_node_map[root]
+    elseif root in keys(igraph._con_node_map)
+        igraph._con_node_map[root]
+    else
+        error("root is not a node in this graph")
+    end
+    adjlist = Graphs.SimpleGraphs.adj(igraph._graph)
+    nodes, dag = _limited_bfs(adjlist, root; depth)
+    nodes = convert(Vector{SubtreeNodeType}, map(n -> igraph._nodes[n], nodes))
+    return IncidenceSubtree(nodes, dag)
+end
+
+function limited_bfs(
+    root::Union{JuMP.VariableRef,<:JuMP.ConstraintRef};
+    depth::Int = 1,
+    kwds...,
+)
+    igraph = IncidenceGraphInterface(root.model; kwds...)
+    return limited_bfs(igraph, root; depth)
+end
+
+function limited_bfs(
+    igraph::IncidenceGraphInterface,
+    root::Union{JuMP.AffExpr,JuMP.QuadExpr,JuMP.NonlinearExpr};
+    depth::Int = 1,
+)
+    nnodes = length(igraph._nodes)
+    # Here, I assume the nodes are contiguous integers
+    expr_node = nnodes + 1
+    # Get the expression's neighbors. These must be variables
+    expr_neighbors = identify_unique_variables(root)
+    expr_neighbors = map(v -> igraph._var_node_map[v], expr_neighbors)
+    g = igraph._graph
+    adjlist = map(n -> Graphs.neighbors(g, n), 1:nnodes)
+    # Add the new node's edges to our adjacency list
+    push!(adjlist, expr_neighbors)
+    subtree_nodes, dag = _limited_bfs(adjlist, expr_node; depth)
+    # We know that root (or its corresponding integer, expr_node) is the first
+    # node in subtree_nodes. We need to use this because we can't look it up
+    # in igraph._nodes.
+    jump_subtree_nodes = SubtreeNodeType[root]
+    append!(
+        jump_subtree_nodes,
+        map(n -> igraph._nodes[n], subtree_nodes[2:end]),
+    )
+    return IncidenceSubtree(jump_subtree_nodes, dag)
+end
+
+function limited_bfs(
+    root::Union{JuMP.AffExpr, JuMP.QuadExpr, JuMP.NonlinearExpr};
+    depth::Int = 1,
+    kwds...,
+)
+    expr_neighbors = identify_unique_variables(root)
+    if isempty(expr_neighbors)
+        return IncidenceSubtree(SubtreeNodeType[root], Graphs.DiGraph(1))
+    else
+        igraph = IncidenceGraphInterface(expr_neighbors[1].model; kwds...)
+        return limited_bfs(igraph, root; depth)
+    end
+end
