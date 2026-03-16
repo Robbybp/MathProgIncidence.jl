@@ -335,3 +335,26 @@ function _get_constraints(
     end
     return constraints
 end
+
+function _are_opposite_inequalities(c1, c2)
+    f1 = MOI.get(model, MOI.ConstraintFunction(), c1)
+    s1 = MOI.get(model, MOI.ConstraintSet(), c1)
+    f2 = MOI.get(model, MOI.ConstraintFunction(), c2)
+    s2 = MOI.get(model, MOI.ConstraintSet(), c2)
+    same_function = f1 == f2
+    if !(set_implies_inequality(s1) && set_implies_inequality(s2))
+        return false
+    else
+end
+
+function get_opposite_inequalities(model::JuMP.Model)
+    inequalities = get_inequality_constraints(model)
+    functions = map(c -> MOI.get(model, MOI.ConstraintFunction(), c), inequalities)
+    nf = length(functions)
+    for (i, fi) in enumerate(functions)
+        for j in (i+1):nf
+            fj = functions[j]
+            if fi == fj &&
+        end
+    end
+end
