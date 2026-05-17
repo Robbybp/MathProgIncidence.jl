@@ -35,6 +35,9 @@ include("block_triangularize.jl")
 include("bfs.jl")
 include("interface.jl")
 
+include("nlp.jl")
+include("explain.jl")
+
 include("visualize.jl")
 
 # Methods to get incidence matrices (as SparseMatrixCSC) from
