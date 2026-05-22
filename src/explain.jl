@@ -2,8 +2,6 @@ import JuMP
 import MathProgIncidence as MPIN
 import LinearAlgebra
 
-include("nlp.jl")
-
 struct ExplanationOptions
     point::Function
     dual::Function
@@ -34,8 +32,8 @@ end
 # - The problem is that this doesn't necessarily have all the variables we want
 #   to explain.
 
-function explain(nlp::NLP, var::JuMP.VariableRef; opts = ExplanationOptions())
-    x = map(opts.point, nlp.variables)
+function explain(nlp::NLP, var::JuMP.VariableRef; options = ExplanationOptions())
+    x = map(options.point, nlp.variables)
     # I really need the Lagrangian gradient as an affine expression
     i = findfirst(v -> v === var,  nlp.variables)
     # I need not just the value of the Lagrangian, I need the components that contribute
@@ -47,16 +45,16 @@ function explain(nlp::NLP, var::JuMP.VariableRef; opts = ExplanationOptions())
     adjacent_cons = MPIN.get_adjacent(igraph, var)
     con_indices = findall(c -> c in adjacent_cons, nlp.constraints)
     adjacent_cons = nlp.constraints[con_indices]
-    λ = opts.dual.(adjacent_cons)
+    λ = options.dual.(adjacent_cons)
     lagrangian_coefficients = λ .* vec(jacobian[con_indices, i])
     explanation = Dict{Any, Float64}(zip(adjacent_cons, lagrangian_coefficients))
     explanation[objective] = nlp.lagrangian_objective_factor * obj_grad[i]
     return explanation
 end
 
-function explain(var::JuMP.VariableRef; opts = ExplanationOptions())
+function explain(var::JuMP.VariableRef; options = ExplanationOptions())
     nlp = NLP(var.model)
-    return explain(nlp, var; opts)
+    return explain(nlp, var; options)
 end
 
 """
@@ -73,9 +71,9 @@ function explain(
     var::JuMP.VariableRef,
     eliminated_vars::Vector{JuMP.VariableRef},
     eliminated_cons::Vector{JuMP.ConstraintRef};
-    opts = ExplanationOptions(),
+    options = ExplanationOptions(),
 )
-    all_var_values = map(opts.point, nlp.variables)
+    all_var_values = map(options.point, nlp.variables)
     y_indices = findall(v -> v ∈ eliminated_vars, nlp.variables) # TODO: Fix this quadratic loop
     x_indices = findall(v -> v ∉ eliminated_vars, nlp.variables)
     #y = all_var_values[y_indices]
@@ -121,7 +119,7 @@ function explain(
             explanation[k] += coef * val
         end
     end
-    explanation = filter(e -> abs(e.second) >= opts.atol, explanation)
+    explanation = filter(e -> abs(e.second) >= options.atol, explanation)
     return explanation
 end
 
@@ -129,8 +127,8 @@ function explain(
     var::JuMP.VariableRef,
     eliminated_vars::Vector{JuMP.VariableRef},
     eliminated_cons::Vector{JuMP.ConstraintRef};
-    opts = ExplanationOptions(),
+    options = ExplanationOptions(),
 )
     nlp = NLP(var.model)
-    return explain(nlp, var, eliminated_vars, eliminated_cons; opts)
+    return explain(nlp, var, eliminated_vars, eliminated_cons; options)
 end

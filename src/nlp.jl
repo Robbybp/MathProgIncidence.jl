@@ -2,8 +2,6 @@ import JuMP
 import MathOptInterface as MOI
 import SparseArrays
 
-module _NLP
-
 struct NLP
     variables::Vector{JuMP.VariableRef}
     constraints::Vector{<:JuMP.ConstraintRef}
@@ -139,6 +137,4 @@ function eval_lagrangian_hessian(nlp, x, λ)
     # TODO: Should this return the full Hessian or just a triangle?
     hessian = (hessian + hessian' - LinearAlgebra.Diagonal(hessian))
     return hessian
-end
-
 end
