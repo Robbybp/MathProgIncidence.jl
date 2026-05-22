@@ -49,6 +49,8 @@ function explain(nlp::NLP, var::JuMP.VariableRef; options = ExplanationOptions()
     lagrangian_coefficients = λ .* vec(jacobian[con_indices, i])
     explanation = Dict{Any, Float64}(zip(adjacent_cons, lagrangian_coefficients))
     explanation[objective] = nlp.lagrangian_objective_factor * obj_grad[i]
+    explanation = filter(e -> abs(e.second) >= options.atol, explanation)
+    explanation = sort(collect(explanation); by = e -> e.second)
     return explanation
 end
 
@@ -120,6 +122,7 @@ function explain(
         end
     end
     explanation = filter(e -> abs(e.second) >= options.atol, explanation)
+    explanation = sort(collect(explanation); by = e -> e.second)
     return explanation
 end
 
