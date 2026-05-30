@@ -135,3 +135,77 @@ function explain(
     nlp = NLP(var.model)
     return explain(nlp, var, eliminated_vars, eliminated_cons; options)
 end
+
+function explain(nlp::NLP, con::JuMP.ConstraintRef; options = ExplanationOptions())
+    x = map(options.point, nlp.variables)
+    i = findfirst(c -> c === con, nlp.constraints)
+    jacobian = eval_constraint_jacobian(nlp, x)
+    # The NLP has _almost_ all the data we need from this graph.
+    # Should we cache the full adjacency list on the NLP?
+    igraph = MPIN.IncidenceGraphInterface(con.model; include_inequality = true)
+    adjacent_vars = MPIN.get_adjacent(igraph, con)
+    var_indices = indices(nlp, adjacent_vars)
+    explanation = Pair.(adjacent_vars, Vector(jacobian[i, var_indices]))
+    explanation = filter(e -> abs(e.second) >= options.atol, explanation)
+    explanation = sort(collect(explanation); by = e -> e.second)
+    return explanation
+end
+
+function explain(
+    nlp::NLP,
+    con::JuMP.ConstraintRef,
+    eliminated_vars::Vector{JuMP.VariableRef},
+    eliminated_cons::Vector{JuMP.ConstraintRef};
+    options = ExplanationOptions(),
+)
+    y_set = Set(eliminated_vars)
+    g_set = Set(eliminated_cons)
+    if con in g_set
+        error("""
+            Constraint:
+
+            $con
+
+            was specified to be projected out of the explanation. An explanation
+            of this constraint in the reduced space will be vacuous.
+        """)
+    end
+    x_var = filter(∉(y_set), nlp.variables)
+    f_con = filter(∉(g_set), nlp.constraints)
+    x_indices = indices(nlp, x_var)
+    y_indices = indices(nlp, eliminated_vars)
+    f_indices = indices(nlp, f_con)
+    g_indices = indices(nlp, eliminated_cons)
+
+    all_var_values = map(options.point, nlp.variables)
+    jacobian = eval_constraint_jacobian(nlp, all_var_values)
+    dfdx = jacobian[f_indices, x_indices]
+    dfdy = jacobian[f_indices, y_indices]
+    dgdx = jacobian[g_indices, x_indices]
+    dgdy = jacobian[g_indices, y_indices]
+
+    i = findfirst(c -> c === con, nlp.constraints)
+    # We transpose dfdy because Julia treats this as a column vector
+    reduced_gradient = dfdx[i, :] - vec(dfdy[i, :]' * (dgdy \ Matrix(dgdx)))
+    # reduced_gradient is for some reason a sparse vector?
+    reduced_gradient = Vector(reduced_gradient)
+    explanation = Pair.(x_var, reduced_gradient)
+    explanation = filter(e -> abs(e.second) >= options.atol, explanation)
+    explanation = sort(collect(explanation); by = e -> e.second)
+    return explanation
+end
+
+function explain(con::JuMP.ConstraintRef; options = ExplanationOptions())
+    nlp = NLP(con.model)
+    return explain(nlp, con; options)
+end
+
+function explain(
+    con::JuMP.ConstraintRef,
+    eliminated_vars::Vector{JuMP.VariableRef},
+    eliminated_cons::Vector{JuMP.ConstraintRef};
+    options = ExplanationOptions(),
+)
+    nlp = NLP(con.model)
+    return explain(nlp, con, eliminated_vars, eliminated_cons; options)
+end
